@@ -1,0 +1,31 @@
+# Core transcription dependencies
+whisperx>=3.1.1
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Pinned versions for compatibility (whisperx + pyannote + huggingface_hub)
+pyannote.audio>=3.3.2,<4.0.0
+huggingface_hub>=0.23.0,<1.0.0
+transformers>=4.40.0,<5.0.0
+
+# CLI and utilities
+click>=8.0.0
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+
+# Audio processing
+soundfile>=0.12.0
+numpy>=1.24.0
+pydub>=0.25.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+
+# OpenAI fallback (optional)
+openai>=1.0.0
+
+# Web UI
+fastapi>=0.109.0
+uvicorn>=0.27.0
+jinja2>=3.1.0
+python-multipart>=0.0.6
+requests>=2.31.0

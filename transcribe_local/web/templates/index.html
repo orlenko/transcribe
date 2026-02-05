@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Transcribe Local{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Upload Section -->
+    <div class="lg:col-span-2">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Upload Audio</h2>
+            <form id="upload-form" enctype="multipart/form-data" class="space-y-4">
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors" id="drop-zone">
+                    <input type="file" name="file" id="file-input" accept="audio/*,.mp3,.wav,.m4a,.mp4,.ogg,.flac,.aac,.webm,.opus" class="hidden">
+                    <div class="text-gray-500">
+                        <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <p class="mt-2">Drag and drop audio file or <button type="button" onclick="document.getElementById('file-input').click()" class="text-blue-600 hover:text-blue-800">browse</button></p>
+                        <p class="text-sm mt-1" id="file-name"></p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                        <select name="mode" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="hybrid" {% if settings.transcription_mode == 'hybrid' %}selected{% endif %}>Hybrid (OpenAI + Local Diarization)</option>
+                            <option value="openai" {% if settings.transcription_mode == 'openai' %}selected{% endif %}>OpenAI Only (No Diarization)</option>
+                            <option value="local" {% if settings.transcription_mode == 'local' %}selected{% endif %}>Fully Local</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Language</label>
+                        <select name="language" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Auto-detect</option>
+                            <option value="en">English</option>
+                            <option value="ru">Russian</option>
+                            <option value="es">Spanish</option>
+                            <option value="fr">French</option>
+                            <option value="de">German</option>
+                            <option value="zh">Chinese</option>
+                            <option value="ja">Japanese</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Min Speakers</label>
+                        <input type="number" name="min_speakers" min="1" max="20" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Auto">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Max Speakers</label>
+                        <input type="number" name="max_speakers" min="1" max="20" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Auto">
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed" id="upload-btn">
+                    Start Transcription
+                </button>
+            </form>
+        </div>
+
+        <!-- Transcripts List -->
+        <div class="bg-white rounded-lg shadow mt-6 p-6">
+            <h2 class="text-lg font-semibold mb-4">Recent Transcripts</h2>
+            {% if transcripts %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead>
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Language</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recorded</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        {% for transcript, audio in transcripts %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 max-w-md">
+                                <a href="/transcript/{{ transcript.id }}" class="text-blue-600 hover:text-blue-800 font-medium">
+                                    {% if transcript.title %}
+                                    {{ transcript.title[:80] }}{% if transcript.title|length > 80 %}...{% endif %}
+                                    {% else %}
+                                    {{ audio.file_path.split('/')[-1][:40] }}{% if audio.file_path|length > 40 %}...{% endif %}
+                                    {% endif %}
+                                </a>
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-500">{{ transcript.language or '--' }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">{{ (audio.recorded_at or transcript.created_at)|localtime }}</td>
+                            <td class="px-4 py-3 text-sm">
+                                <a href="/transcript/{{ transcript.id }}" class="text-blue-600 hover:text-blue-800 mr-2">View</a>
+                                <button onclick="deleteTranscript({{ transcript.id }})" class="text-red-600 hover:text-red-800">Delete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <!-- Pagination -->
+            {% if pagination.total_pages > 1 %}
+            <div class="flex items-center justify-between mt-4 pt-4 border-t">
+                <div class="text-sm text-gray-500">
+                    Showing {{ (pagination.page - 1) * pagination.per_page + 1 }}-{{ [pagination.page * pagination.per_page, pagination.total]|min }} of {{ pagination.total }}
+                </div>
+                <div class="flex gap-2">
+                    {% if pagination.has_prev %}
+                    <a href="?page={{ pagination.page - 1 }}&per_page={{ pagination.per_page }}" class="px-3 py-1 border border-gray-300 rounded-md text-sm hover:bg-gray-50">&larr; Prev</a>
+                    {% else %}
+                    <span class="px-3 py-1 border border-gray-200 rounded-md text-sm text-gray-400 cursor-not-allowed">&larr; Prev</span>
+                    {% endif %}
+
+                    <span class="px-3 py-1 text-sm text-gray-600">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+
+                    {% if pagination.has_next %}
+                    <a href="?page={{ pagination.page + 1 }}&per_page={{ pagination.per_page }}" class="px-3 py-1 border border-gray-300 rounded-md text-sm hover:bg-gray-50">Next &rarr;</a>
+                    {% else %}
+                    <span class="px-3 py-1 border border-gray-200 rounded-md text-sm text-gray-400 cursor-not-allowed">Next &rarr;</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            {% else %}
+            <p class="text-gray-500 text-sm">No transcripts yet. Upload an audio file to get started.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="space-y-6">
+        <!-- Active Jobs -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Jobs</h2>
+            <div id="jobs-list">
+                {% if jobs %}
+                {% for job in jobs %}
+                <div class="flex items-center justify-between py-2 border-b last:border-0">
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">{{ job.original_filename[:30] }}{% if job.original_filename|length > 30 %}...{% endif %}</div>
+                        <div class="text-xs text-gray-500">{{ job.message or job.status.value }}</div>
+                    </div>
+                    <div class="ml-4">
+                        {% if job.status.value == 'completed' %}
+                        <a href="/transcript/{{ job.transcript_id }}" class="text-blue-600 hover:text-blue-800 text-sm">View</a>
+                        {% elif job.status.value == 'failed' %}
+                        <span class="text-red-600 text-sm">Failed</span>
+                        {% else %}
+                        <div class="w-20 bg-gray-200 rounded-full h-2">
+                            <div class="bg-blue-600 h-2 rounded-full" style="width: {{ job.progress * 100 }}%"></div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="text-gray-500 text-sm">No jobs</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Known Speakers -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Known Speakers</h2>
+            {% if speakers %}
+            <ul class="space-y-2">
+                {% for speaker in speakers %}
+                <li class="flex items-center justify-between">
+                    <span class="text-sm font-medium">{{ speaker.name }}</span>
+                    <span class="text-xs text-gray-500">{{ speaker.sample_count }} samples</span>
+                </li>
+                {% endfor %}
+            </ul>
+            <a href="/speakers" class="block mt-4 text-sm text-blue-600 hover:text-blue-800">Manage speakers &rarr;</a>
+            {% else %}
+            <p class="text-gray-500 text-sm">No speakers yet. Assign names to speakers in transcripts to teach the system.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // File upload handling
+    const fileInput = document.getElementById('file-input');
+    const dropZone = document.getElementById('drop-zone');
+    const fileName = document.getElementById('file-name');
+    const uploadForm = document.getElementById('upload-form');
+    const uploadBtn = document.getElementById('upload-btn');
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            fileName.textContent = e.target.files[0].name;
+        }
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-blue-500', 'bg-blue-50');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        if (e.dataTransfer.files.length > 0) {
+            fileInput.files = e.dataTransfer.files;
+            fileName.textContent = e.dataTransfer.files[0].name;
+        }
+    });
+
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (!fileInput.files.length) {
+            alert('Please select a file');
+            return;
+        }
+
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+
+        const formData = new FormData(uploadForm);
+
+        try {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                uploadBtn.textContent = 'Processing...';
+                pollJobs();
+                fileInput.value = '';
+                fileName.textContent = '';
+            } else {
+                alert('Error: ' + (data.detail || 'Upload failed'));
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        } finally {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Start Transcription';
+        }
+    });
+
+    function deleteTranscript(id) {
+        if (!confirm('Delete this transcript?')) return;
+
+        fetch(`/api/transcripts/${id}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(() => location.reload())
+            .catch(err => alert('Error: ' + err.message));
+    }
+
+    // Start polling if there are active jobs
+    {% if jobs %}
+    const hasActiveJobs = {{ jobs|rejectattr('status.value', 'in', ['completed', 'failed'])|list|length }};
+    if (hasActiveJobs > 0) {
+        pollJobs();
+    }
+    {% endif %}
+</script>
+{% endblock %}

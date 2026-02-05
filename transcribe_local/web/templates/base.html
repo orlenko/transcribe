@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Transcribe Local{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .speaker-label { font-weight: 600; }
+        .speaker-SPEAKER_00 { color: #3b82f6; }
+        .speaker-SPEAKER_01 { color: #10b981; }
+        .speaker-SPEAKER_02 { color: #f59e0b; }
+        .speaker-SPEAKER_03 { color: #ef4444; }
+        .speaker-SPEAKER_04 { color: #8b5cf6; }
+        .speaker-UNKNOWN { color: #6b7280; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/" class="text-xl font-bold text-gray-900">Transcribe Local</a>
+                    <div class="ml-10 flex space-x-4">
+                        <a href="/" class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">Dashboard</a>
+                        <a href="/capture" class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">Capture</a>
+                        <a href="/speakers" class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">Speakers</a>
+                        <a href="/settings" class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100">Settings</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        // Utility functions
+        function formatDuration(seconds) {
+            if (!seconds) return '--';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function formatTimestamp(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            const ms = Math.floor((seconds % 1) * 1000);
+            return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+        }
+
+        // Poll for job updates
+        function pollJobs() {
+            fetch('/api/jobs')
+                .then(r => r.json())
+                .then(data => {
+                    const activeJobs = data.jobs.filter(j => !['completed', 'failed'].includes(j.status));
+                    if (activeJobs.length > 0) {
+                        updateJobsUI(data.jobs);
+                        setTimeout(pollJobs, 2000);
+                    } else {
+                        updateJobsUI(data.jobs);
+                    }
+                })
+                .catch(console.error);
+        }
+
+        function updateJobsUI(jobs) {
+            const container = document.getElementById('jobs-list');
+            if (!container) return;
+
+            if (jobs.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">No jobs</p>';
+                return;
+            }
+
+            container.innerHTML = jobs.slice(0, 10).map(job => `
+                <div class="flex items-center justify-between py-2 border-b last:border-0">
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">${job.original_filename}</div>
+                        <div class="text-xs text-gray-500">${job.message || job.status}</div>
+                    </div>
+                    <div class="ml-4">
+                        ${job.status === 'completed' ? `
+                            <a href="/transcript/${job.transcript_id}" class="text-blue-600 hover:text-blue-800 text-sm">View</a>
+                        ` : job.status === 'failed' ? `
+                            <span class="text-red-600 text-sm">Failed</span>
+                        ` : `
+                            <div class="w-20 bg-gray-200 rounded-full h-2">
+                                <div class="bg-blue-600 h-2 rounded-full" style="width: ${job.progress * 100}%"></div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `).join('');
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

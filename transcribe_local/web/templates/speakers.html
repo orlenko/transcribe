@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Speakers - Transcribe Local{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <h1 class="text-2xl font-bold mb-6">Speaker Management</h1>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Add Speaker -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Add New Speaker</h2>
+            <form id="add-speaker-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input type="text" name="name" required class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500" placeholder="John Doe">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                    <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Additional notes about this speaker"></textarea>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                    Add Speaker
+                </button>
+            </form>
+        </div>
+
+        <!-- Info -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">How Speaker Learning Works</h2>
+            <div class="text-sm text-gray-600 space-y-2">
+                <p><strong>1. Transcribe</strong> - Upload audio and let the system detect speakers (SPEAKER_00, SPEAKER_01, etc.)</p>
+                <p><strong>2. Assign</strong> - Map speaker labels to real names in the transcript view</p>
+                <p><strong>3. Learn</strong> - The system extracts voice embeddings and stores them</p>
+                <p><strong>4. Recognize</strong> - In future transcriptions, known speakers are automatically identified</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Speaker List -->
+    <div class="bg-white rounded-lg shadow mt-6">
+        <div class="p-6 border-b">
+            <h2 class="text-lg font-semibold">Known Speakers</h2>
+        </div>
+
+        {% if speakers %}
+        <div class="divide-y">
+            {% for speaker in speakers %}
+            <div class="p-6 flex items-center justify-between hover:bg-gray-50">
+                <div>
+                    <h3 class="font-medium text-gray-900">{{ speaker.name }}</h3>
+                    <p class="text-sm text-gray-500">
+                        {{ speaker.sample_count }} voice sample(s) |
+                        Added {{ speaker.created_at|localtime('%Y-%m-%d') }}
+                    </p>
+                    {% if speaker.notes %}
+                    <p class="text-sm text-gray-400 mt-1">{{ speaker.notes }}</p>
+                    {% endif %}
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="renameSpeaker('{{ speaker.name }}')" class="text-blue-600 hover:text-blue-800 text-sm">Rename</button>
+                    <button onclick="deleteSpeaker('{{ speaker.name }}')" class="text-red-600 hover:text-red-800 text-sm">Delete</button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="p-6 text-center text-gray-500">
+            <p>No speakers yet.</p>
+            <p class="text-sm mt-2">Speakers are added automatically when you assign names to speaker labels in transcripts.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('add-speaker-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+
+        try {
+            const response = await fetch('/api/speakers', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Error: ' + (data.detail || 'Failed to add speaker'));
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    });
+
+    function renameSpeaker(oldName) {
+        const newName = prompt('Enter new name for ' + oldName);
+        if (!newName || newName === oldName) return;
+
+        const formData = new FormData();
+        formData.append('new_name', newName);
+
+        fetch(`/api/speakers/${encodeURIComponent(oldName)}/rename`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'renamed') {
+                location.reload();
+            } else {
+                alert('Error: ' + (data.detail || 'Failed to rename'));
+            }
+        })
+        .catch(err => alert('Error: ' + err.message));
+    }
+
+    function deleteSpeaker(name) {
+        if (!confirm(`Delete speaker "${name}" and all their voice samples?`)) return;
+
+        fetch(`/api/speakers/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        })
+        .then(r => r.json())
+        .then(() => location.reload())
+        .catch(err => alert('Error: ' + err.message));
+    }
+</script>
+{% endblock %}

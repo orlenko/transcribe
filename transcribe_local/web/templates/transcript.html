@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+
+{% block title %}{% if transcript.title %}{{ transcript.title }}{% else %}Transcript{% endif %} - Transcribe Local{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <a href="/" class="text-blue-600 hover:text-blue-800">&larr; Back to Dashboard</a>
+</div>
+
+<!-- Audio Player (sticky) -->
+<div class="sticky top-0 z-20 bg-white border-b shadow-sm mb-6 p-4 rounded-lg">
+    <div class="flex items-center gap-4">
+        <button id="play-pause-btn" class="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 focus:outline-none">
+            <svg id="play-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+            </svg>
+            <svg id="pause-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z"/>
+            </svg>
+        </button>
+        <div class="flex-1">
+            <input type="range" id="audio-progress" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" value="0" min="0" max="100">
+        </div>
+        <div class="text-sm text-gray-600 w-24 text-right">
+            <span id="current-time">00:00</span> / <span id="duration">00:00</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217z"/>
+            </svg>
+            <input type="range" id="volume-control" class="w-20 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" value="100" min="0" max="100">
+        </div>
+    </div>
+    <audio id="audio-player" src="/api/audio/{{ transcript.id }}" preload="metadata"></audio>
+</div>
+
+<!-- Speaker Dropdown (hidden, positioned dynamically) -->
+<div id="speaker-dropdown" class="hidden absolute z-50 bg-white border border-gray-300 rounded-lg shadow-lg py-2 min-w-56">
+    <div class="px-3 py-2 border-b border-gray-200">
+        <input type="text" id="speaker-search" placeholder="Search or add new..."
+               class="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+               onclick="event.stopPropagation()">
+    </div>
+    <div class="px-3 py-2 border-b border-gray-200 text-xs">
+        <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="assign-mode" value="single" checked class="text-blue-600">
+            <span>This segment only</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer mt-1">
+            <input type="radio" name="assign-mode" value="all" class="text-blue-600">
+            <span id="assign-all-label">All segments with this label</span>
+        </label>
+    </div>
+    <div id="speaker-options" class="max-h-48 overflow-y-auto">
+        {% for speaker in speakers %}
+        <div class="speaker-option px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" data-name="{{ speaker.name }}">
+            {{ speaker.name }}
+        </div>
+        {% endfor %}
+    </div>
+    <div id="add-new-speaker" class="hidden px-3 py-2 border-t border-gray-200 hover:bg-green-50 cursor-pointer text-sm text-green-700">
+        <span class="mr-1">+</span> Add "<span id="new-speaker-name"></span>"
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <!-- Main Transcript -->
+    <div class="lg:col-span-3">
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-6 border-b">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h1 class="text-xl font-semibold">{% if transcript.title %}{{ transcript.title }}{% else %}{{ audio_file.file_path.split('/')[-1] if audio_file else 'Transcript' }}{% endif %}</h1>
+                        {% if transcript.title and audio_file %}
+                        <p class="text-sm text-gray-600">{{ audio_file.file_path.split('/')[-1] }}</p>
+                        {% endif %}
+                        <p class="text-sm text-gray-500 mt-1">
+                            {% if audio_file and audio_file.duration_seconds %}
+                            Duration: {{ (audio_file.duration_seconds / 60)|round(1) }} min |
+                            {% endif %}
+                            Language: {{ transcript.language or 'Unknown' }} |
+                            Model: {{ transcript.model_name }}
+                        </p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <div class="relative">
+                            <button onclick="toggleExportMenu()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">
+                                Export
+                            </button>
+                            <div id="export-menu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
+                                <a href="/api/export/{{ transcript.id }}?format=txt" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Text (.txt)</a>
+                                <a href="/api/export/{{ transcript.id }}?format=json" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">JSON (.json)</a>
+                                <a href="/api/export/{{ transcript.id }}?format=srt" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Subtitles (.srt)</a>
+                                <a href="/api/export/{{ transcript.id }}?format=vtt" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">WebVTT (.vtt)</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6 max-h-[70vh] overflow-y-auto" id="transcript-content">
+                {% for segment in segments %}
+                <div class="segment mb-4 flex group hover:bg-blue-50 rounded p-2 -mx-2 cursor-pointer transition-colors"
+                     data-segment-id="{{ segment.id }}"
+                     data-speaker="{{ segment.speaker_label }}"
+                     data-start="{{ segment.start_time }}"
+                     data-end="{{ segment.end_time }}"
+                     onclick="playFromSegment(this)">
+                    <div class="w-24 flex-shrink-0 text-xs text-gray-400 pt-1">
+                        <span class="play-indicator hidden text-blue-600 mr-1">&#9654;</span>
+                        {{ '%02d:%02d:%02d'|format((segment.start_time // 3600)|int, ((segment.start_time % 3600) // 60)|int, (segment.start_time % 60)|int) }}
+                    </div>
+                    <div class="flex-1">
+                        <span class="speaker-name-wrapper relative inline-block">
+                            <span class="speaker-label speaker-{{ segment.speaker_label.replace(' ', '_') }} cursor-pointer hover:underline"
+                                  data-segment-id="{{ segment.id }}"
+                                  data-speaker-label="{{ segment.speaker_label }}"
+                                  onclick="event.stopPropagation(); showSpeakerDropdown(this, '{{ segment.speaker_label }}', {{ segment.id }})">
+                                {% if segment.speaker_id %}
+                                {% for speaker in speakers %}{% if speaker.id == segment.speaker_id %}{{ speaker.name }}{% endif %}{% endfor %}
+                                {% else %}
+                                {{ segment.speaker_label }}
+                                {% endif %}
+                            </span>:
+                        </span>
+                        <span class="text-gray-800">{{ segment.text }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="space-y-6">
+        <!-- Speaker Legend -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Speakers in Transcript</h2>
+            <ul class="space-y-2">
+                {% for label in speaker_labels %}
+                <li class="flex items-center justify-between">
+                    <span class="speaker-label speaker-{{ label.replace(' ', '_') }}">{{ label }}</span>
+                    <span class="text-xs text-gray-400">
+                        {{ segments|selectattr('speaker_label', 'equalto', label)|list|length }} segments
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <!-- Search -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Search</h2>
+            <input type="text" id="search-input" placeholder="Search transcript..." class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const transcriptId = {{ transcript.id }};
+    const knownSpeakers = {{ speakers|map(attribute='name')|list|tojson }};
+
+    // Audio player elements
+    const audio = document.getElementById('audio-player');
+    const playPauseBtn = document.getElementById('play-pause-btn');
+    const playIcon = document.getElementById('play-icon');
+    const pauseIcon = document.getElementById('pause-icon');
+    const progressBar = document.getElementById('audio-progress');
+    const currentTimeEl = document.getElementById('current-time');
+    const durationEl = document.getElementById('duration');
+    const volumeControl = document.getElementById('volume-control');
+
+    // Speaker dropdown elements
+    const speakerDropdown = document.getElementById('speaker-dropdown');
+    const speakerSearch = document.getElementById('speaker-search');
+    const speakerOptions = document.getElementById('speaker-options');
+    const addNewSpeaker = document.getElementById('add-new-speaker');
+    const newSpeakerName = document.getElementById('new-speaker-name');
+    const assignAllLabel = document.getElementById('assign-all-label');
+    let currentSpeakerLabel = null;
+    let currentSegmentId = null;
+    let currentElement = null;
+
+    // Format time as MM:SS or HH:MM:SS
+    function formatTime(seconds) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // Update play/pause button icon
+    function updatePlayPauseIcon() {
+        if (audio.paused) {
+            playIcon.classList.remove('hidden');
+            pauseIcon.classList.add('hidden');
+        } else {
+            playIcon.classList.add('hidden');
+            pauseIcon.classList.remove('hidden');
+        }
+    }
+
+    // Play/pause toggle
+    playPauseBtn.addEventListener('click', () => {
+        if (audio.paused) {
+            audio.play();
+        } else {
+            audio.pause();
+        }
+    });
+
+    // Update on play/pause
+    audio.addEventListener('play', updatePlayPauseIcon);
+    audio.addEventListener('pause', updatePlayPauseIcon);
+
+    // Update progress bar and time display
+    audio.addEventListener('timeupdate', () => {
+        const progress = (audio.currentTime / audio.duration) * 100;
+        progressBar.value = progress || 0;
+        currentTimeEl.textContent = formatTime(audio.currentTime);
+        highlightCurrentSegment();
+    });
+
+    // Update duration when metadata loads
+    audio.addEventListener('loadedmetadata', () => {
+        durationEl.textContent = formatTime(audio.duration);
+    });
+
+    // Seek when clicking progress bar
+    progressBar.addEventListener('input', () => {
+        const time = (progressBar.value / 100) * audio.duration;
+        audio.currentTime = time;
+    });
+
+    // Volume control
+    volumeControl.addEventListener('input', () => {
+        audio.volume = volumeControl.value / 100;
+    });
+
+    // Play from a specific segment
+    function playFromSegment(element) {
+        const startTime = parseFloat(element.dataset.start);
+        audio.currentTime = startTime;
+        audio.play();
+    }
+
+    // Highlight the currently playing segment
+    function highlightCurrentSegment() {
+        const currentTime = audio.currentTime;
+        const segments = document.querySelectorAll('.segment');
+
+        segments.forEach(seg => {
+            const start = parseFloat(seg.dataset.start);
+            const end = parseFloat(seg.dataset.end);
+            const indicator = seg.querySelector('.play-indicator');
+
+            if (currentTime >= start && currentTime < end) {
+                seg.classList.add('bg-blue-100');
+                seg.classList.remove('hover:bg-blue-50');
+                if (indicator) indicator.classList.remove('hidden');
+            } else {
+                seg.classList.remove('bg-blue-100');
+                seg.classList.add('hover:bg-blue-50');
+                if (indicator) indicator.classList.add('hidden');
+            }
+        });
+    }
+
+    // Show speaker dropdown
+    function showSpeakerDropdown(element, speakerLabel, segmentId) {
+        currentSpeakerLabel = speakerLabel;
+        currentSegmentId = segmentId;
+        currentElement = element;
+
+        // Update the "all segments" label to show the speaker label
+        assignAllLabel.textContent = `All "${speakerLabel}" segments`;
+
+        // Reset to single-segment mode by default
+        document.querySelector('input[name="assign-mode"][value="single"]').checked = true;
+
+        // Position dropdown near the clicked element
+        const rect = element.getBoundingClientRect();
+        speakerDropdown.style.left = `${rect.left + window.scrollX}px`;
+        speakerDropdown.style.top = `${rect.bottom + window.scrollY + 4}px`;
+
+        // Reset search
+        speakerSearch.value = '';
+        filterSpeakerOptions('');
+
+        // Show dropdown
+        speakerDropdown.classList.remove('hidden');
+        speakerSearch.focus();
+    }
+
+    // Hide speaker dropdown
+    function hideSpeakerDropdown() {
+        speakerDropdown.classList.add('hidden');
+        currentSpeakerLabel = null;
+        currentSegmentId = null;
+        currentElement = null;
+    }
+
+    // Filter speaker options based on search
+    function filterSpeakerOptions(query) {
+        const options = speakerOptions.querySelectorAll('.speaker-option');
+        let hasMatch = false;
+
+        options.forEach(opt => {
+            const name = opt.dataset.name.toLowerCase();
+            if (name.includes(query.toLowerCase())) {
+                opt.classList.remove('hidden');
+                hasMatch = true;
+            } else {
+                opt.classList.add('hidden');
+            }
+        });
+
+        // Show "Add new" option if query doesn't match existing speakers
+        if (query.trim() && !knownSpeakers.some(s => s.toLowerCase() === query.toLowerCase())) {
+            newSpeakerName.textContent = query.trim();
+            addNewSpeaker.classList.remove('hidden');
+        } else {
+            addNewSpeaker.classList.add('hidden');
+        }
+    }
+
+    // Assign speaker
+    async function assignSpeaker(speakerName) {
+        if (!speakerName) return;
+
+        const assignMode = document.querySelector('input[name="assign-mode"]:checked').value;
+        const formData = new FormData();
+        formData.append('speaker_name', speakerName);
+
+        let url, updateAll;
+        if (assignMode === 'single' && currentSegmentId) {
+            // Single segment assignment
+            url = `/api/segments/${currentSegmentId}/assign`;
+            updateAll = false;
+        } else {
+            // All segments with this label
+            if (!currentSpeakerLabel) return;
+            url = `/api/transcripts/${transcriptId}/assign`;
+            formData.append('speaker_label', currentSpeakerLabel);
+            formData.append('learn_voice', 'true');
+            updateAll = true;
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                if (updateAll) {
+                    // Update all speaker labels with this label in the UI
+                    document.querySelectorAll(`[data-speaker-label="${currentSpeakerLabel}"]`).forEach(el => {
+                        el.textContent = speakerName;
+                    });
+                } else {
+                    // Update only the clicked element
+                    if (currentElement) {
+                        currentElement.textContent = speakerName;
+                    }
+                }
+                hideSpeakerDropdown();
+            } else {
+                alert('Error: ' + (data.detail || 'Assignment failed'));
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    // Speaker search input
+    speakerSearch.addEventListener('input', (e) => {
+        filterSpeakerOptions(e.target.value);
+    });
+
+    // Enter key in search creates new speaker
+    speakerSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && speakerSearch.value.trim()) {
+            e.preventDefault();
+            assignSpeaker(speakerSearch.value.trim());
+        }
+        if (e.key === 'Escape') {
+            hideSpeakerDropdown();
+        }
+    });
+
+    // Click on speaker option
+    speakerOptions.addEventListener('click', (e) => {
+        const option = e.target.closest('.speaker-option');
+        if (option) {
+            assignSpeaker(option.dataset.name);
+        }
+    });
+
+    // Click on "Add new" option
+    addNewSpeaker.addEventListener('click', () => {
+        assignSpeaker(speakerSearch.value.trim());
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#speaker-dropdown') && !e.target.closest('.speaker-label')) {
+            hideSpeakerDropdown();
+        }
+        if (!e.target.closest('#export-menu') && !e.target.closest('button')) {
+            document.getElementById('export-menu').classList.add('hidden');
+        }
+    });
+
+    function toggleExportMenu() {
+        document.getElementById('export-menu').classList.toggle('hidden');
+    }
+
+    // Search functionality
+    document.getElementById('search-input').addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        const segments = document.querySelectorAll('#transcript-content > div');
+
+        segments.forEach(seg => {
+            const text = seg.textContent.toLowerCase();
+            seg.style.display = text.includes(query) ? '' : 'none';
+        });
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Don't trigger shortcuts when typing in inputs
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+            return;
+        }
+
+        // Space to play/pause
+        if (e.code === 'Space') {
+            e.preventDefault();
+            if (audio.paused) {
+                audio.play();
+            } else {
+                audio.pause();
+            }
+        }
+        // Arrow keys to seek
+        if (e.code === 'ArrowLeft') {
+            audio.currentTime = Math.max(0, audio.currentTime - 5);
+        }
+        if (e.code === 'ArrowRight') {
+            audio.currentTime = Math.min(audio.duration, audio.currentTime + 5);
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+
+{% block title %}Browser Capture - Transcribe Local{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+    <div class="bg-white rounded-lg shadow p-6">
+        <h1 class="text-2xl font-bold mb-2">Browser Capture</h1>
+        <p class="text-sm text-gray-600">
+            Record directly in your browser and stream audio chunks to this server.
+            This works well from phones/tablets as long as they can reach <code>{{ request.url.hostname }}:{{ request.url.port or 80 }}</code>.
+        </p>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6 space-y-4">
+        <h2 class="text-lg font-semibold">Capture Settings</h2>
+        <form id="capture-form" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                    <select id="mode" name="mode" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="hybrid" {% if settings.transcription_mode == 'hybrid' %}selected{% endif %}>Hybrid</option>
+                        <option value="openai" {% if settings.transcription_mode == 'openai' %}selected{% endif %}>OpenAI</option>
+                        <option value="local" {% if settings.transcription_mode == 'local' %}selected{% endif %}>Local</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Used as metadata for this capture session.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Language</label>
+                    <select id="language" name="language" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="" {% if not settings.default_language %}selected{% endif %}>Auto-detect</option>
+                        <option value="en" {% if settings.default_language == 'en' %}selected{% endif %}>English</option>
+                        <option value="ru" {% if settings.default_language == 'ru' %}selected{% endif %}>Russian</option>
+                        <option value="es" {% if settings.default_language == 'es' %}selected{% endif %}>Spanish</option>
+                        <option value="fr" {% if settings.default_language == 'fr' %}selected{% endif %}>French</option>
+                        <option value="de" {% if settings.default_language == 'de' %}selected{% endif %}>German</option>
+                        <option value="zh" {% if settings.default_language == 'zh' %}selected{% endif %}>Chinese</option>
+                        <option value="ja" {% if settings.default_language == 'ja' %}selected{% endif %}>Japanese</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Chunk Size</label>
+                    <select id="chunk-seconds" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="2">2 seconds</option>
+                        <option value="5" selected>5 seconds</option>
+                        <option value="10">10 seconds</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Smaller chunks upload more often.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Optional Label</label>
+                    <input id="label" maxlength="40" placeholder="meeting-room-a" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500" />
+                    <p class="text-xs text-gray-500 mt-1">Added to the saved filename.</p>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6 space-y-4">
+        <h2 class="text-lg font-semibold">Controls</h2>
+        <div class="flex flex-wrap gap-3">
+            <button id="start-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                Start Recording
+            </button>
+            <button id="stop-btn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50" disabled>
+                Stop & Save
+            </button>
+            <button id="cancel-btn" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50" disabled>
+                Cancel
+            </button>
+        </div>
+
+        <div class="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm space-y-1">
+            <div><span class="font-medium text-gray-700">Status:</span> <span id="status-text" class="text-gray-700">Idle</span></div>
+            <div><span class="font-medium text-gray-700">Session:</span> <span id="session-id" class="font-mono text-gray-600">--</span></div>
+            <div><span class="font-medium text-gray-700">Elapsed:</span> <span id="elapsed" class="text-gray-700">00:00</span></div>
+            <div><span class="font-medium text-gray-700">Chunks Uploaded:</span> <span id="chunk-count" class="text-gray-700">0</span></div>
+            <div><span class="font-medium text-gray-700">Data Uploaded:</span> <span id="byte-count" class="text-gray-700">0 B</span></div>
+        </div>
+
+        <p class="text-xs text-gray-500">
+            Captured files are saved to the server uploads folder and processed by <code>transcribe-local jobs start</code>.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+
+    const statusText = document.getElementById('status-text');
+    const sessionIdEl = document.getElementById('session-id');
+    const elapsedEl = document.getElementById('elapsed');
+    const chunkCountEl = document.getElementById('chunk-count');
+    const byteCountEl = document.getElementById('byte-count');
+
+    let mediaRecorder = null;
+    let mediaStream = null;
+    let sessionId = null;
+    let recordingStart = null;
+    let elapsedTimer = null;
+    let chunkUploadChain = Promise.resolve();
+    let uploadFailed = false;
+    let cancelRequested = false;
+    let selectedMimeType = '';
+
+    function setStatus(message, isError = false) {
+        statusText.textContent = message;
+        statusText.className = isError ? 'text-red-700' : 'text-gray-700';
+    }
+
+    function setControls(isRecording) {
+        startBtn.disabled = isRecording;
+        stopBtn.disabled = !isRecording;
+        cancelBtn.disabled = !isRecording;
+    }
+
+    function formatElapsed(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function formatBytes(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function chooseMimeType() {
+        const candidates = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/mp4',
+            'audio/ogg;codecs=opus',
+            'audio/ogg',
+        ];
+        for (const candidate of candidates) {
+            if (window.MediaRecorder && MediaRecorder.isTypeSupported(candidate)) {
+                return candidate;
+            }
+        }
+        return '';
+    }
+
+    function extensionForMimeType(mimeType) {
+        if (!mimeType) return 'webm';
+        if (mimeType.includes('webm')) return 'webm';
+        if (mimeType.includes('ogg')) return 'ogg';
+        if (mimeType.includes('mp4')) return 'mp4';
+        if (mimeType.includes('mpeg')) return 'mp3';
+        if (mimeType.includes('wav')) return 'wav';
+        return 'webm';
+    }
+
+    function startElapsedTimer() {
+        recordingStart = Date.now();
+        elapsedTimer = setInterval(() => {
+            const elapsedSec = Math.floor((Date.now() - recordingStart) / 1000);
+            elapsedEl.textContent = formatElapsed(elapsedSec);
+        }, 1000);
+    }
+
+    function stopElapsedTimer() {
+        if (elapsedTimer) {
+            clearInterval(elapsedTimer);
+            elapsedTimer = null;
+        }
+    }
+
+    async function uploadChunk(blob) {
+        if (!sessionId) {
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('session_id', sessionId);
+        formData.append('chunk', blob, `chunk.${extensionForMimeType(selectedMimeType)}`);
+
+        const response = await fetch('/api/capture/chunk', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Chunk upload failed');
+        }
+
+        chunkCountEl.textContent = String(data.chunks ?? chunkCountEl.textContent);
+        byteCountEl.textContent = formatBytes(Number(data.bytes || 0));
+    }
+
+    function queueChunkUpload(blob) {
+        chunkUploadChain = chunkUploadChain
+            .then(() => uploadChunk(blob))
+            .catch((err) => {
+                uploadFailed = true;
+                setStatus(`Upload error: ${err.message}`, true);
+            });
+    }
+
+    async function finalizeCapture() {
+        if (!sessionId) {
+            return;
+        }
+
+        await chunkUploadChain;
+
+        if (cancelRequested || uploadFailed) {
+            await cancelCaptureSession();
+            if (uploadFailed) {
+                setStatus('Recording stopped due to upload errors', true);
+            } else {
+                setStatus('Recording cancelled');
+            }
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('session_id', sessionId);
+
+        const response = await fetch('/api/capture/finish', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to finalize recording');
+        }
+
+        setStatus(`Saved ${data.chunks} chunk(s). File queued for transcription.`);
+    }
+
+    async function cancelCaptureSession() {
+        if (!sessionId) {
+            return;
+        }
+        const formData = new FormData();
+        formData.append('session_id', sessionId);
+        await fetch('/api/capture/cancel', {
+            method: 'POST',
+            body: formData,
+        });
+    }
+
+    function cleanupMedia() {
+        if (mediaStream) {
+            mediaStream.getTracks().forEach((track) => track.stop());
+            mediaStream = null;
+        }
+        mediaRecorder = null;
+        sessionId = null;
+        sessionIdEl.textContent = '--';
+        setControls(false);
+        stopElapsedTimer();
+    }
+
+    startBtn.addEventListener('click', async () => {
+        if (!window.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setStatus('MediaRecorder is not supported in this browser', true);
+            return;
+        }
+
+        try {
+            setStatus('Requesting microphone access...');
+
+            selectedMimeType = chooseMimeType();
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            const mode = document.getElementById('mode').value;
+            const language = document.getElementById('language').value;
+            const label = document.getElementById('label').value;
+
+            const startForm = new FormData();
+            startForm.append('mode', mode);
+            if (language) {
+                startForm.append('language', language);
+            }
+            if (label) {
+                startForm.append('label', label);
+            }
+            if (selectedMimeType) {
+                startForm.append('mime_type', selectedMimeType);
+            }
+
+            const startResp = await fetch('/api/capture/start', {
+                method: 'POST',
+                body: startForm,
+            });
+            const startData = await startResp.json();
+            if (!startResp.ok) {
+                throw new Error(startData.detail || 'Failed to start capture session');
+            }
+
+            sessionId = startData.session_id;
+            sessionIdEl.textContent = sessionId;
+            chunkCountEl.textContent = '0';
+            byteCountEl.textContent = '0 B';
+            elapsedEl.textContent = '00:00';
+            uploadFailed = false;
+            cancelRequested = false;
+            chunkUploadChain = Promise.resolve();
+
+            const chunkSeconds = Number(document.getElementById('chunk-seconds').value || '5');
+            const recorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : undefined;
+            mediaRecorder = new MediaRecorder(mediaStream, recorderOptions);
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    queueChunkUpload(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                try {
+                    await finalizeCapture();
+                } catch (err) {
+                    setStatus(err.message || String(err), true);
+                } finally {
+                    cleanupMedia();
+                }
+            };
+
+            mediaRecorder.start(chunkSeconds * 1000);
+            setControls(true);
+            startElapsedTimer();
+            setStatus(`Recording started (${selectedMimeType || 'default mime'})`);
+        } catch (err) {
+            setStatus(err.message || String(err), true);
+            cleanupMedia();
+        }
+    });
+
+    stopBtn.addEventListener('click', () => {
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+            return;
+        }
+        setStatus('Stopping and finalizing...');
+        mediaRecorder.stop();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+        cancelRequested = true;
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            setStatus('Cancelling...');
+            mediaRecorder.stop();
+        } else {
+            cancelCaptureSession().finally(() => {
+                setStatus('Recording cancelled');
+                cleanupMedia();
+            });
+        }
+    });
+</script>
+{% endblock %}
