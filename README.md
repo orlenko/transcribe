@@ -13,12 +13,26 @@ Speaker-aware transcription toolkit with:
 
 ### Prerequisites
 
-- Python `3.10+`
+- Python `3.10+` (we pin `3.11.9` in `.python-version`)
 - `ffmpeg` and `ffprobe` in `PATH`
 - Hugging Face token (`HF_TOKEN`) for local diarization (`hybrid`/`local`)
 - OpenAI API key (`OPENAI_API_KEY`) for `hybrid`/`openai`
 
-### Install
+### Bootstrap (recommended)
+
+```bash
+git clone https://github.com/orlenko/transcribe.git
+cd transcribe
+./scripts/setup-env.sh --install-python --run-doctor
+```
+
+`setup-env.sh` supports:
+
+- `pyenv` for installing/using `.python-version`
+- `venv + pip` flow
+- `Poetry` flow (`--manager poetry`)
+
+### Manual install (venv)
 
 ```bash
 git clone https://github.com/orlenko/transcribe.git
@@ -28,11 +42,29 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+### Manual install (Poetry)
+
+```bash
+git clone https://github.com/orlenko/transcribe.git
+cd transcribe
+poetry env use python3
+# or, with pyenv:
+# poetry env use $(pyenv prefix $(cat .python-version))/bin/python
+poetry install
+```
+
 ## First Run
 
 ```bash
 transcribe-local setup
 transcribe-local doctor
+```
+
+If you used Poetry:
+
+```bash
+poetry run transcribe-local setup
+poetry run transcribe-local doctor
 ```
 
 This writes runtime state under `~/.transcribe_local/`:
@@ -95,6 +127,17 @@ transcribe-local serve --host 0.0.0.0 --port 8000
 transcribe-local jobs start
 transcribe-local upload start
 transcribe-local transcribe ./sample.mp3 --hybrid
+```
+
+## Make Targets
+
+```bash
+make setup
+make setup-pyenv
+make setup-poetry
+make doctor
+make jobs
+make serve
 ```
 
 ## Notes

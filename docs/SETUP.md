@@ -8,12 +8,38 @@ This guide covers the three supported modes:
 
 ## 1) Base Install (all machines)
 
+### Recommended bootstrap
+
+```bash
+./scripts/setup-env.sh --install-python --run-doctor
+```
+
+This uses `.python-version` with `pyenv` when available.
+
+### Alternate managers
+
+```bash
+./scripts/setup-env.sh --manager venv
+./scripts/setup-env.sh --manager poetry
+```
+
+### Manual venv install
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 transcribe-local setup
 transcribe-local doctor
+```
+
+### Manual Poetry install
+
+```bash
+poetry env use python3
+poetry install
+poetry run transcribe-local setup
+poetry run transcribe-local doctor
 ```
 
 Runtime path defaults to `~/.transcribe_local`. Override with:

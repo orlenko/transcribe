@@ -3,6 +3,7 @@
 This package powers the `transcribe-local` CLI.
 
 For project installation and quick start, see the repository root README.
+Use `./scripts/setup-env.sh` for guided environment setup (pyenv + venv/poetry).
 Detailed deployment playbooks are in `docs/SETUP.md`.
 
 ## First-time setup
